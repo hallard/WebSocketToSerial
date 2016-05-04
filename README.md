@@ -6,7 +6,7 @@ This is a pure transparent bridge between Wifi and serial using any ESP8266 devi
 I'm using it on WeMos target, you can find more information on WeMos on their [site][1], it's really well documented.
 I now use WeMos boards instead of NodeMCU's one because they're just smaller, features remains the same, but I also suspect WeMos regulator far better quality than the one used on NodeMCU that are just fake of originals AMS117 3V3.
 
-This project is mainly based on excellent me-no-dev [ESPAsyncWebServer][4] library and great [JQuery Terminal][3] done by Jakub Jankiewicz.
+This project is mainly based on excellent @me-no-dev [ESPAsyncWebServer][4] library and great [JQuery Terminal][3] done by Jakub Jankiewicz.
 
 Documentation
 =============
@@ -24,11 +24,11 @@ Test web page without ESP8266
 webdev folder is the development folder to test and validate web pages. It's used to avoid flashing the device on each modification.
 All source file are located in this folder the ESP8266 data folder (containing web pages) is filled by a js script of webdev folder.
 
-To test pages, go to a command line, go into webdev folder and issue a:
+To test pages, go to a command line, go into webdev folder and issue a:    
 `node web_server.js`     
 then connect your browser to htpp://localhost:8080 you can them modidy and test source files such index.htm
-
-Once all is okay issue a:
+    
+Once all is okay issue a:    
 `node create_spiffs.js`     
 this will gzip file and put them into data folder, after that you can upload from Arduino IDE to device SPIFFS
 
@@ -45,6 +45,9 @@ Commands once connected to remote device:
 - ping : typing ping on terminal and ESP8266 will send back pong
 - !close : close connection
 
+See all in action    
+http://cdn.rawgit.com/hallard/WebSocketToSerial/master/webdev/index.htm
+
 Known Issues/Missing Features:
 ------------------------------
 - More configuration features (UART speed/configuration)
@@ -52,8 +55,8 @@ Known Issues/Missing Features:
 Dependencies
 ------------
 - Arduino [ESP8266][6]
-- me-no-dev [ESPAsyncWebServer][4] library
-- me-no-dev [ESPAsyncTCP][5] library 
+- @me-no-dev [ESPAsyncWebServer][4] library
+- @me-no-dev [ESPAsyncTCP][5] library 
 - [nodejs][7] for web pages development test 
 
 Misc
