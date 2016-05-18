@@ -23,6 +23,22 @@ var os = require('os');
 var dispatcher = require('httpdispatcher');
 var ws = require('websocket').server;
 
+var clientid=0;
+
+
+function list() {
+return[	{"type":"file","name":"css/jquery.terminal-min.css.gz"},
+				{"type":"file","name":"favicon.ico"},
+				{"type":"file","name":"js/ace.js.gz"},
+				{"type":"file","name":"js/jquery-1.12.3.min.js.gz"},
+				{"type":"file","name":"js/jquery.mousewheel-min.js.gz"},
+				{"type":"file","name":"js/jquery.terminal-min.js.gz"},
+				{"type":"file","name":"edit.htm"},
+				{"type":"file","name":"index.htm"},
+				{"type":"file","name":"rn2483.txt"},
+				{"type":"file","name":"startup.txt"}]
+}
+
 //Lets use our dispatcher
 function handleRequest(req, res) {
   try {
@@ -54,7 +70,13 @@ function humanSize(bytes) {
 dispatcher.onGet("/heap", function(req, res) {
       res.writeHead(200, {"Content-Type": "text/html"});
       res.end(humanSize(os.freemem()));
-});    
+});  
+
+dispatcher.onGet("/list", function(req, res) {
+      res.writeHead(200, {"Content-Type": "text/json"});
+      res.end(JSON.stringify(list()));
+});   
+
 
 // Not found, try to read file from disk and send to client
 dispatcher.onError(function(req, res) {
@@ -62,12 +84,12 @@ dispatcher.onError(function(req, res) {
 	var filePath = '.' + uri;
 	var extname = path.extname(filePath);
 
-	if (filePath == './')
-  	filePath = './index.htm';
+	if (filePath == './') 		filePath = './index.htm';
+	if (filePath == './edit')	filePath = './edit.htm';
 
 	var contentType = mime.lookup(filePath);
 
-	console.log('filepath='+filePath);
+	console.log('File='+filePath+' Type='+contentType);
 
 	// Read file O
 	fs.readFile(filePath, function(error, content) {
@@ -77,7 +99,7 @@ dispatcher.onError(function(req, res) {
         fs.readFile('./404.html', function(error, content) {
           res.writeHead(200, { 'Content-Type': contentType });
           res.end(content, 'utf-8');
-					console.log("ENOENT "+filePath+ ' => '+contentType);
+					console.log("Error ENOENT when serving file '"+filePath+ "' => "+contentType);
         });
       } else {
 	    	// WTF ?
@@ -107,7 +129,7 @@ wsSrv.on('request', function(request) {
 
 	// We received a message
 	connection.on('message', function(message) {
-		//console.log(connection, 'ws message ' + util.inspect(message, false, null));
+	//console.log(connection, 'ws message ' + util.inspect(request, false, null));
 
 		// Text message
 		if (message.type === 'utf8') {
@@ -118,14 +140,22 @@ wsSrv.on('request', function(request) {
 
 			if (msg==='ping') {
 				// Send pong
-				connection.sendUTF('pong');
+				connection.sendUTF('[[b;cyan;]pong]');
+			} else if (msg=='heap'){
+				var free = humanSize(os.freemem());
+				connection.sendUTF("Free RAM [[b;green;]"+free+"]");
+			} else if (msg=='whoami'){
+				// dummy
+				++clientid;
+				connection.sendUTF("You are [[b;green;]"+clientid+"]");
 			} else {
 				// Send back what we received
-				connection.sendUTF("I've received your '"+msg+"' message")
+				msg = msg.replace(/\]/g, "&#93;");
+				connection.sendUTF("I've received [[b;green;]"+msg+"]")
 			}
 		}
 		else if (message.type === 'binary') {
-			console.log('Received Binary Message of '+message.binaryData.length+' bytes');
+			console.log('Received Binary Message of [[b;green;]"'+message.binaryData.length+'] bytes');
 			connection.sendUTF("I've received your binary data here it back");
 			connection.sendBytes(message.binaryData);
 		}

@@ -1,3 +1,5 @@
+#include <Arduino.h>
+
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
 #include <ArduinoOTA.h>
@@ -6,70 +8,457 @@
 #include <ESPAsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 
-const char* ssid = "**********";
-const char* password = "************";
+// Maximum number of simultaned clients connected (WebSocket)
+#define MAX_WS_CLIENT 5
+
+#define CLIENT_NONE     0
+#define CLIENT_ACTIVE   1
+
+#define HELP_TEXT "[[b;green;]WebSocket2Serial HELP]\n" \
+                  "---------------------\n" \
+                  "[[b;cyan;]?] or [[b;cyan;]help] show this help\n" \
+                  "[[b;cyan;]swap]      swap serial UART pin to GPIO15/GPIO13\n" \
+                  "[[b;cyan;]ping]      send ping command\n" \
+                  "[[b;cyan;]heap]      show free RAM\n" \
+                  "[[b;cyan;]whoami]    show client # we are\n" \
+                  "[[b;cyan;]who]       show all clients connected\n" \
+                  "[[b;cyan;]fw]        show firmware date/time\n"  \
+                  "[[b;cyan;]baud n]    set serial baud rate to n\n" \
+                  "[[b;cyan;]reset p]   reset gpio pin number p\n" \
+                  "[[b;cyan;]ls]        list SPIFFS files\n" \
+                  "[[b;cyan;]read file] send SPIFFS file to serial (read)" 
+
+// Web Socket client state
+typedef struct {
+  uint32_t  id;
+  uint8_t   state;
+} _ws_client; 
+
+// WEB HANDLER IMPLEMENTATION
+class SPIFFSEditor: public AsyncWebHandler {
+  private:
+    String _username;
+    String _password;
+    bool _uploadAuthenticated;
+  public:
+    SPIFFSEditor(String username=String(), String password=String()):_username(username),_password(password),_uploadAuthenticated(false){}
+    bool canHandle(AsyncWebServerRequest *request){
+      if(request->method() == HTTP_GET && request->url() == "/edit" && (SPIFFS.exists("/edit.htm") || SPIFFS.exists("/edit.htm.gz")))
+        return true;
+      else if(request->method() == HTTP_GET && request->url() == "/list")
+        return true;
+      else if(request->method() == HTTP_GET && (request->url().endsWith("/") || SPIFFS.exists(request->url()) || (!request->hasParam("download") && SPIFFS.exists(request->url()+".gz"))))
+        return true;
+      else if(request->method() == HTTP_POST && request->url() == "/edit")
+        return true;
+      else if(request->method() == HTTP_DELETE && request->url() == "/edit")
+        return true;
+      else if(request->method() == HTTP_PUT && request->url() == "/edit")
+        return true;
+      return false;
+    }
+
+    void handleRequest(AsyncWebServerRequest *request){
+      if(_username.length() && (request->method() != HTTP_GET || request->url() == "/edit" || request->url() == "/list") && !request->authenticate(_username.c_str(),_password.c_str()))
+        return request->requestAuthentication();
+
+      if(request->method() == HTTP_GET && request->url() == "/edit"){
+        request->send(SPIFFS, "/edit.htm");
+      } else if(request->method() == HTTP_GET && request->url() == "/list"){
+        if(request->hasParam("dir")){
+          String path = request->getParam("dir")->value();
+          Dir dir = SPIFFS.openDir(path);
+          path = String();
+          String output = "[";
+          while(dir.next()){
+            File entry = dir.openFile("r");
+            if (output != "[") output += ',';
+            bool isDir = false;
+            output += "{\"type\":\"";
+            output += (isDir)?"dir":"file";
+            output += "\",\"name\":\"";
+            output += String(entry.name()).substring(1);
+            output += "\"}";
+            entry.close();
+          }
+          output += "]";
+          request->send(200, "text/json", output);
+          output = String();
+        }
+        else
+          request->send(400);
+      } else if(request->method() == HTTP_GET){
+        String path = request->url();
+        if(path.endsWith("/"))
+          path += "index.htm";
+        request->send(SPIFFS, path, String(), request->hasParam("download"));
+      } else if(request->method() == HTTP_DELETE){
+        if(request->hasParam("path", true)){
+          ESP.wdtDisable(); SPIFFS.remove(request->getParam("path", true)->value()); ESP.wdtEnable(10);
+          request->send(200, "", "DELETE: "+request->getParam("path", true)->value());
+        } else
+          request->send(404);
+      } else if(request->method() == HTTP_POST){
+        if(request->hasParam("data", true, true) && SPIFFS.exists(request->getParam("data", true, true)->value()))
+          request->send(200, "", "UPLOADED: "+request->getParam("data", true, true)->value());
+        else
+          request->send(500);
+      } else if(request->method() == HTTP_PUT){
+        if(request->hasParam("path", true)){
+          String filename = request->getParam("path", true)->value();
+          if(SPIFFS.exists(filename)){
+            request->send(200);
+          } else {
+            File f = SPIFFS.open(filename, "w");
+            if(f){
+              f.write(0x00);
+              f.close();
+              request->send(200, "", "CREATE: "+filename);
+            } else {
+              request->send(500);
+            }
+          }
+        } else
+          request->send(400);
+      }
+    }
+
+    void handleUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final){
+      if(!index){
+        if(!_username.length() || request->authenticate(_username.c_str(),_password.c_str()))
+          _uploadAuthenticated = true;
+        request->_tempFile = SPIFFS.open(filename, "w");
+      }
+      if(_uploadAuthenticated && request->_tempFile && len){
+        ESP.wdtDisable(); request->_tempFile.write(data,len); ESP.wdtEnable(10);
+      }
+      if(_uploadAuthenticated && final)
+        if(request->_tempFile) request->_tempFile.close();
+    }
+};
+
+
+const char* ssid = "*******";
+const char* password = "*******";
+const char* http_username = "admin";
+const char* http_password = "admin";
 
 String inputString = "";
-bool serialSwap = false;
+bool serialSwapped = false;
 
 // SKETCH BEGIN
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 
+// State Machine for WebSocket Client;
+_ws_client ws_client[MAX_WS_CLIENT]; 
+
+
+/* ======================================================================
+Function: execCommand
+Purpose : translate and execute command
+Input   : client if coming from Websocket
+          command received
+Output  : - 
+Comments: -
+====================================================================== */
+void execCommand(AsyncWebSocketClient * client, char * msg) {
+  uint16_t l = strlen(msg);
+  uint8_t index=MAX_WS_CLIENT;
+
+  // Search if w're known client
+  if (client) {
+    for (index=0; index<MAX_WS_CLIENT ; index++) {
+      // Exit for loop if we are there
+      if (ws_client[index].id == client->id() ) 
+        break;
+    } // for all clients
+  }
+
+  // Custom command to talk to device
+  if (!strcmp_P(msg,PSTR("ping"))) {
+    if (client)
+      client->printf_P(PSTR("received your [[b;cyan;]ping], here is my [[b;cyan;]pong]"));
+
+  } else if (!strcmp_P(msg,PSTR("swap"))) {
+    Serial.swap();
+    serialSwapped != serialSwapped;
+    if (client)
+      client->printf_P(PSTR("Swapped UART pins, now using [[b;green;]RX-GPIO%d TX-GPIO%d]"),
+                              serialSwapped?13:3,serialSwapped?15:1);
+
+  } else if (l>=6 && !strncmp_P(msg,PSTR("baud "), 5) ) {
+    int v= atoi(&msg[5]);
+    if (v==115200 || v==19200 || v==57600 || v==9600) {
+      Serial.flush(); 
+      delay(10);    
+      Serial.end();
+      delay(10);    
+      Serial.begin(v);
+      if (client)
+        client->printf_P(PSTR("Serial Baud Rate is now [[b;green;]%d] bps"), v);
+    } else {
+      if (client) {
+        client->printf_P(PSTR("[[b;red;]Error: Invalid Baud Rate %d]"), v);
+        client->printf_P(PSTR("Valid baud rate are 115200, 57600, 19200 or 9600"));
+      }
+    }
+
+  // Dir files on SPIFFS system
+  // --------------------------
+  } else if (!strcmp_P(msg,PSTR("ls")) ) {
+    Dir dir = SPIFFS.openDir("/");
+    uint16_t cnt = 0;
+    String out = PSTR("SPIFFS Files\r\n Size   Name");
+    char buff[16];
+
+    while ( dir.next() ) {
+      cnt++;
+      File entry = dir.openFile("r");
+      sprintf_P(buff, "\r\n%6d ", entry.size());
+      //client->printf_P(PSTR("%5d %s"), entry.size(), entry.name());
+      out += buff;
+      out += String(entry.name()).substring(1);
+      entry.close();
+    }
+    if (client) 
+      client->printf_P(PSTR("%s\r\nFound %d files"), out.c_str(), cnt);
+
+  // read file and send to serial
+  // ----------------------------
+  } else if (l>=6 && !strncmp_P(msg,PSTR("read "), 5) ) {
+    char * pfname = &msg[5];
+
+    if ( *pfname != '/' )
+      *--pfname = '/';
+
+    // file exists
+    if (SPIFFS.exists(pfname)) {
+      // open file for reading.
+      File ofile = SPIFFS.open(pfname, "r");
+      if (ofile) {
+        char c;
+        String str="";
+        if (client)
+          client->printf_P(PSTR("Reading file %s"), pfname);
+        // Read until end
+        while (ofile.available())
+        {
+          // Read all chars
+          c = ofile.read();
+          if (c=='\r') {
+            // Nothing to do 
+          } else if (c == '\n') {
+            str.trim();
+            if (str!="") {
+              if (str.charAt(0)!='#') {
+
+                if (str.charAt(0)=='!') {
+                  // Call ourselve to execute interne, command
+                  execCommand(client, (char*) (str.c_str())+1);
+                } else {
+                  // send content to Serial
+                  Serial.print(str);
+                  Serial.print("\r\n");
+
+                  // and to do connected client
+                  if (client)
+                    client->printf_P(PSTR("[[b;green;]%s]"), str.c_str());
+                }
+              } else {
+                // and to do connected client
+                if (client)
+                  client->printf_P(PSTR("[[b;grey;]%s]"), str.c_str());
+              }
+            }
+            str = "";
+          } else {
+            // prepare line
+            str += c;
+          }
+        }
+        ofile.close();
+      } else {
+        if (client)
+          client->printf_P(PSTR("[[b;red;]Error: opening file %s]"), pfname);
+      }
+    } else {
+      if (client)
+        client->printf_P(PSTR("[[b;red;]Error: file %s not found]"), pfname);
+    }
+
+  // no delay in client (websocket)
+  // ----------------------------
+  } else if (client==NULL && l>=7 && !strncmp_P(msg,PSTR("delay "), 6) ) {
+    uint16_t v= atoi(&msg[6]);
+    if (v>=0 && v<=60000 ) {
+      //Serial.printf("delay(%d)\r\n",v);
+      delay(v);
+    }
+
+  // ----------------------------
+  } else if (l>=7 && !strncmp_P(msg,PSTR("reset "), 6) ) {
+    int v= atoi(&msg[6]);
+    if (v>=0 && v<=16) {
+      pinMode(v, OUTPUT);
+      digitalWrite(v, HIGH);
+      if (client)
+        client->printf_P(PSTR("[[b;orange;]Reseting pin %d]"), v);
+      digitalWrite(v, LOW);
+      delay(50);
+      digitalWrite(v, HIGH);
+    } else {
+      if (client) {
+        client->printf_P(PSTR("[[b;red;]Error: Invalid pin number %d]"), v);
+        client->printf_P(PSTR("Valid pin number are 0 to 16"));
+      }
+    }
+
+  } else if (client && !strcmp_P(msg,PSTR("fw"))) {
+    client->printf_P(PSTR("Firmware version [[b;green;]%s %s]"), __DATE__, __TIME__);
+
+  } else if (client && !strcmp_P(msg,PSTR("whoami"))) {
+    client->printf_P(PSTR("[[b;green;]You are client #%u at index[%d&#93;]"),client->id(), index );
+
+  } else if (client && !strcmp_P(msg,PSTR("who"))) {
+    uint8_t cnt = 0;
+    // Count client
+    for (uint8_t i=0; i<MAX_WS_CLIENT ; i++) {
+      if (ws_client[i].id ) {
+        cnt++;
+      }
+    }
+    
+    client->printf_P(PSTR("[[b;green;]Current client total %d/%d possible]"), cnt, MAX_WS_CLIENT);
+    for (uint8_t i=0; i<MAX_WS_CLIENT ; i++) {
+      if (ws_client[i].id ) {
+        client->printf_P(PSTR("index[[[b;green;]%d]]; client [[b;green;]#%d]"), i, ws_client[i].id );
+      }
+    }
+
+  } else if (client && !strcmp_P(msg,PSTR("heap"))) {
+    client->printf_P(PSTR("Free Heap [[b;green;]%ld] bytes"), ESP.getFreeHeap());
+
+  } else if (client && (*msg=='?' || !strcmp_P(msg,PSTR("help")))) {
+    client->printf_P(PSTR(HELP_TEXT));
+
+  // all other to serial Proxy
+  }  else if (*msg) {
+    //os_printf("Text '%s'", msg);
+    // Send text to serial
+    Serial.print(msg);
+    Serial.print("\r\n");
+  }
+}
+
+/* ======================================================================
+Function: onEvent
+Purpose : Manage routing of websocket events
+Input   : -
+Output  : - 
+Comments: -
+====================================================================== */
 void onEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len){
   if(type == WS_EVT_CONNECT){
+    uint8_t index;
     os_printf("ws[%s][%u] connect\n", server->url(), client->id());
-    client->printf("Hello Client %u :)", client->id());
-    client->ping();
+
+    for (index=0; index<MAX_WS_CLIENT ; index++) {
+      if (ws_client[index].id == 0 ) {
+        ws_client[index].id = client->id();
+        ws_client[index].state = CLIENT_ACTIVE;
+        os_printf("added #%u at index[%d]\n", client->id(), index);
+        client->printf("[[b;green;]Hello Client #%u, added you at index %d]", client->id(), index);
+        client->ping();
+        break; // Exit for loop
+      }
+    }
+    if (index>=MAX_WS_CLIENT) {
+      os_printf("not added, table is full");
+      client->printf("[[b;red;]Sorry client #%u, Max client limit %d reached]", client->id(), MAX_WS_CLIENT);
+      client->ping();
+    }
+
   } else if(type == WS_EVT_DISCONNECT){
     os_printf("ws[%s][%u] disconnect: %u\n", server->url(), client->id());
+    for (uint8_t i=0; i<MAX_WS_CLIENT ; i++) {
+      if (ws_client[i].id == client->id() ) {
+        ws_client[i].id = 0;
+        ws_client[i].state = CLIENT_NONE;
+        os_printf("freed[%d]\n", i);
+        break; // Exit for loop
+      }
+    }
   } else if(type == WS_EVT_ERROR){
     os_printf("ws[%s][%u] error(%u): %s\n", server->url(), client->id(), *((uint16_t*)arg), (char*)data);
   } else if(type == WS_EVT_PONG){
     os_printf("ws[%s][%u] pong[%u]: %s\n", server->url(), client->id(), len, (len)?(char*)data:"");
   } else if(type == WS_EVT_DATA){
-    AwsFrameInfo * info = (AwsFrameInfo*)arg;
-    char buff[3];
-    String str = "";
+    //data packet
+    AwsFrameInfo * info = (AwsFrameInfo*) arg;
+    char * msg = NULL;
+    size_t n = info->len;
+    uint8_t index;
 
-    // Grab all data
-    for(size_t i=0; i < info->len; i++) {
-      if (info->opcode == WS_TEXT ) {
-        str += (char) data[i];
-      } else {
-        sprintf(buff, "%02x ", (uint8_t) data[i]);
-        str += buff ;
+    // Size of buffer needed
+    // String same size +1 for \0
+    // Hex size*3+1 for \0 (hex displayed as "FF AA BB ...")
+    n = info->opcode == WS_TEXT ? n+1 : n*3+1;
+
+    msg = (char*) calloc(n, sizeof(char));
+    if (msg) {
+      // Grab all data
+      for(size_t i=0; i < info->len; i++) {
+        if (info->opcode == WS_TEXT ) {
+          msg[i] = (char) data[i];
+        } else {
+          sprintf_P(msg+i*3, PSTR("%02x "), (uint8_t) data[i]);
+        }
       }
     }
 
-    // Custom coommand to talk to device
-    if (str == "ping") {
-      client->printf("received your ping, here is my pong");
-    } else if (str == "swap") {
-      Serial.swap();
-      client->printf("Swapped UART pins, now using ");
-      if ( serialSwap ) {
-        serialSwap = false;
-        client->printf("RX-GPIO3 TX-GPIO1");
-      } else {
-        serialSwap = true;
-        client->printf("RX-GPIO13 TX-GPIO15");
-      }
-    } else if (str == "heap") {
-      client->printf("Free Heap %ld bytes", ESP.getFreeHeap());
+    os_printf("ws[%s][%u] message %s\n", server->url(), client->id(), msg);
 
-    // Send all other to serial
-    }  else if (str!="") {
-      Serial.print(info->opcode==WS_TEXT?"":"Binary 0x:");
-      Serial.println(str);
-    }
-  }
+    // Search if it's a known client
+    for (index=0; index<MAX_WS_CLIENT ; index++) {
+      if (ws_client[index].id == client->id() ) {
+        os_printf("known[%d] '%s'\n", index, msg);
+        os_printf("client #%d info state=%d\n", client->id(), ws_client[index].state);
+
+        // Received text message
+        if (info->opcode == WS_TEXT) {
+          execCommand(client, msg);
+        } else {
+          os_printf("Binary 0x:%s", msg);
+        }
+        // Exit for loop
+        break;
+      } // if known client
+    } // for all clients
+
+    // Free up allocated buffer
+    if (msg) 
+      free(msg);
+
+  } // EVT_DATA
 }
 
-
+/* ======================================================================
+Function: setup
+Purpose : Setup I/O and other one time startup stuff
+Input   : -
+Output  : - 
+Comments: -
+====================================================================== */
 void setup(){
+  char host[17];
+
+  // Set Hostname for OTA and network
+  sprintf_P(host, PSTR("WS2Serial_%06X"), ESP.getChipId());
+
   Serial.begin(115200);
-  Serial.println(F("\r\nWebSocket2Serial"));
+  Serial.print(F("\r\nBooting "));
+  Serial.println(host);
   SPIFFS.begin();
   WiFi.mode(WIFI_STA);
 
@@ -93,9 +482,10 @@ void setup(){
     }
   }
 
-  Serial.print(F("Connected with "));
-  Serial.println(WiFi.localIP());
+  Serial.print(F("I'm network device named "));
+  Serial.println(host);
 
+  ArduinoOTA.setHostname(host);
   ArduinoOTA.begin();
   
   ws.onEvent(onEvent);
@@ -105,8 +495,11 @@ void setup(){
     request->send(200, "text/plain", String(ESP.getFreeHeap()));
   });
 
-  server.serveStatic("/", SPIFFS, "/index.htm", "max-age=86400");
-  server.serveStatic("/", SPIFFS, "/",          "max-age=86400"); 
+  server.serveStatic("/fs", SPIFFS, "/");
+  server.serveStatic("/",   SPIFFS, "/index.htm", "max-age=86400");
+  server.serveStatic("/",   SPIFFS, "/",          "max-age=86400"); 
+
+  server.addHandler(new SPIFFSEditor(http_username,http_password));
 
   server.onNotFound([](AsyncWebServerRequest *request){
     os_printf("NOT_FOUND: ");
@@ -156,21 +549,72 @@ void setup(){
     request->send(404);
   });
 
+  server.onFileUpload([](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final){
+    if(!index)
+      os_printf("UploadStart: %s\n", filename.c_str());
+    os_printf("%s", (const char*)data);
+    if(final)
+      os_printf("UploadEnd: %s (%u)\n", filename.c_str(), index+len);
+  });
+  server.onRequestBody([](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total){
+    if(!index)
+      os_printf("BodyStart: %u\n", total);
+    os_printf("%s", (const char*)data);
+    if(index + len == total)
+      os_printf("BodyEnd: %u\n", total);
+  });
+
+  // Set on board led GPIO to outout
+  pinMode(BUILTIN_LED, OUTPUT);
+
+  // Run startup script if any
+  char cmd[] = "read /startup.txt";
+  execCommand(NULL, cmd);
+  char cmd1[] = "baud 115200";
+  execCommand(NULL, cmd1);
 
   // Start Server
   server.begin();
+  Serial.print(F("Started HTTP://"));
+  Serial.print(WiFi.localIP());
+  Serial.print(F(" and WS://"));
+  Serial.print(WiFi.localIP());
+  Serial.println(F("/ws"));
 }
 
+/* ======================================================================
+Function: loop
+Purpose : infinite loop main code
+Input   : -
+Output  : - 
+Comments: -
+====================================================================== */
 void loop() {
+  bool led_state ; 
+
+  // Got one serial char ?
   if (Serial.available()) {
+    // Read it and store it in buffer
     char inChar = (char)Serial.read();
     inputString += inChar;
 
+    // New line char ?
     if (inChar == '\n') {
+      // Send to all client
       ws.textAll(inputString);
       inputString = "";
     }
   }
 
+  // Led blink management 
+  if (WiFi.status()==WL_CONNECTED) {
+    led_state = ((millis() % 1000) < 200) ? LOW:HIGH; // Connected long blink 200ms on each second
+  } else {
+    led_state = ((millis() % 333) < 111) ? LOW:HIGH;// AP Mode or client failed quick blink 111ms on each 1/3sec
+  }
+  // Led management
+  digitalWrite(BUILTIN_LED, led_state);
+
+  // Handle remote Wifi Updates
   ArduinoOTA.handle();
 }

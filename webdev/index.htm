@@ -15,6 +15,21 @@
 jQuery(document).ready(function($) {
   var ws = null;
 
+  // Show help
+  function showHelp() {
+    // Close WS if already opened
+    term.echo("available commands when not connected are [[b;cyan;]connect] or [[b;cyan;]help]\n" + 
+                  "connect is done trough WebSocket so real URI is [[bu;;]ws://host:port/ws]\n" +
+                  "as soon as you're connected to Internet you can connect anywhere\n" +
+                  "examples: [[b;cyan;]connect]                connect to same host than in browser url\n" +
+                  "          [[b;cyan;]connect 192.168.1.22]   connect to 192.168.1.22\n" +
+                  "          [[b;cyan;]connect mywebsocket:81] connect to mywebsocket:81\n" +
+                  "When you're connected to target sending help may show you target help" +
+                  ""
+                  ); 
+  }
+
+
   // Stop WebSocket
   function stopWS() {
     // Close WS if already opened
@@ -34,16 +49,16 @@ jQuery(document).ready(function($) {
 
     ws.onopen = function(e) {
       console.log("ws connected ", e);
-      term.echo("[[b;greenyellow;]Connected to "+url+"]");
+      term.echo("[[b;green;]Connected to "+url+"]");
       term.echo("Press ctrl-d or type [[b;cyan;]!close] to disconnect");
       term.echo("Type [[b;cyan;]ping] so see pong response");
-      term.set_prompt(url+"[[;greenyellow;] #]");
+      term.set_prompt(url+"[[;green;] #]");
     };
 
     ws.onclose = function(e){
       console.log("ws closed ", e);
-      term.echo("[[b;orangered;]Disconnected]");
-      term.set_prompt('[[;orangered;]>]');
+      term.echo("[[b;red;]Disconnected]");
+      term.set_prompt('[[;red;]>]');
     };
 
     ws.onerror = function(e){
@@ -55,32 +70,28 @@ jQuery(document).ready(function($) {
       var msg = "";
       if(e.data instanceof ArrayBuffer){
         // WS binary in blue
-        color = 'lightblue';
+        color = 'light';
         var bytes = new Uint8Array(e.data);
         for (var i = 0; i < bytes.length; i++) {
           msg += String.fromCharCode(bytes[i]);
         }
       } else {
         // WS text in green
-        color = 'greenyellow';
+        color = 'green';
         msg = e.data;
+        // replace ] color ending by html code
+        //msg = msg.replace(/\]/g, "&#93;");
       }
       // remove \r and \n terminal echo them
-      msg.replace(/(\r\n|\n|\r)/gm,"");
-      term.echo("[[;"+color+";]"+msg+"]");
+      //msg = msg.replace(/(\r\n|\n|\r)/gm,"");
+      //term.echo("[[;"+color+";]"+msg+"]");
+      term.echo(msg);
     };
   }
 
   // Instanciate the terminal object
   var term = $('body').terminal( {
-      help: function() {
-        this.echo("available commands are [[b;cyan;]connect], [[b;cyan;]help]\n" + 
-                  "connect is done trough WebSocket so real URI is [[bu;;]ws://host:port/ws]\n" +
-                  "as soon as you're connected to Internet you can connect anywhere\n" +
-                  "examples: [[b;cyan;]connect]                connect to same host than in browser url\n" +
-                  "          [[b;cyan;]connect 192.168.1.22]   connect to 192.168.1.22\n" +
-                  "          [[b;cyan;]connect mywebsocket:81] connect to mywebsocket:81"); 
-      },
+      help: function() { showHelp(); },
       connect: function(arg1) { 
         startWS(arg1); 
         this.push(function(command, term) { 
@@ -99,14 +110,18 @@ jQuery(document).ready(function($) {
     }, 
 
     // Default terminal settings and greetings
-    { prompt: '[[;orangered;]>]', 
+    { prompt: '[[;red;]>]', 
       checkArity : false,
-      greetings: "=============================================\n" +
-                 "= ESP8266 WebSocket To Serial terminal demo =\n" + 
-                 "=============================================\n" +
-                 "Using great and wonderfull JQuery Terminal\n" +
-                 "see [[bu!;;]http://terminal.jcubic.pl/] for more info\n" +
+      greetings: "================================================\n" +
+                 "= ESP8266 WebSocket To Serial terminal demo    =\n" + 
+                 "= Using great and wonderfull JQuery Terminal   =\n" +
+                 "= see [[bu!;;]http://terminal.jcubic.pl/] for more info =\n" +
+                 "= Get this full application source code at     =\n" +
+                 "= [[bu!;;]https://github.com/hallard/WebSocketToSerial] =\n" +
+                 "================================================\n" +
                  "Type [[b;cyan;]help] to see available commands\n" +
+                 "Click on following link to see and edit device\n" +
+                 "SPIFFS filesystem [[bu!;;]http://" + document.location.host + "/edit.htm]\n" +
                  "Type [[b;cyan;]connect] to connect to [[bu!;;]" + document.location.host + "]"
     }
   );
