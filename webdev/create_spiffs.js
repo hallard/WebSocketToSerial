@@ -35,7 +35,10 @@ copyCreate('js/jquery.terminal-min.js',true);
 copyCreate('js/jquery-1.12.3.min.js',true);
 copyCreate('css/jquery.terminal-min.css',true);
 copyCreate('index.htm');
+copyCreate('edit.htm');
 copyCreate('favicon.ico');
+copyCreate('startup.txt');
+copyCreate('rn2483.txt');
 console.log('finished!, upload to target from Arduino IDE');
 
 
