@@ -1,0 +1,6 @@
+# Startup config file executed once in setup()
+# commands prefixed by ! are executed by ESP
+# all others passed to serial module
+
+# Microchip Lora rn2483 configuration
+!read /rn2483.txt
