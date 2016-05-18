@@ -41,16 +41,72 @@ Terminal Commands:
 
 Commands once connected to remote device:
 -----------------------------------------
-- swap : swap ESP8266 UART pin between GPIO1/GPIO3 with GPIO13/GPIO14
-- ping : typing ping on terminal and ESP8266 will send back pong
-- !close : close connection
+- `!close` or CTRL-D : close connection
+- `swap` swap ESP8266 UART pin between GPIO1/GPIO3 with GPIO15/GPIO13
+- `ping` typing ping on terminal and ESP8266 will send back pong
+- `?` or `help` show help
+- `heap` show ESP8266 free RAM
+- `whoami` show WebSocket client # we are
+- `who` show all WebSocket clients connected
+- `fw` show firmware date/time
+- `baud n` set ESP8266 serial baud rate to n (to be compatble with device driven)
+- `reset p` reset gpio pin number p
+- `ls` list SPIFFS files
+- `read file` execute SPIFFS file command
+
+
+Every command in file `startup.txt` are executed in setup() you can chain with other files. 
+
+I'm using this sketch to drive Microchip RN2483 Lora module to test LoraWan, see [boards][8]
+
+For example my `startup.txt` file contains command to read microchip RN2483 config `rn2483.txt` file
+
+startup.txt
+````
+# Startup config file executed once in setup()
+# commands prefixed by ! are executed by ESP
+# all others passed to serial module
+
+# Microchip Lora rn2483 configuration
+!read /rn2483.txt
+
+````
+
+rn2483.txt
+````
+# Startup config file for Microchip RN2483
+# commands prefixed by ! are executed by ESP all others passed to serial module
+# !delay is not executed when connected via browser web terminal (websocket)
+# See schematics here https://github.com/hallard/WeMos-RN2483
+
+# Set ESP Module serial speed (RN2483 is 57600)
+!baud 57600
+!delay 100
+
+# reset RN2483 module (reset pin connected to ESP GPIO15)
+!reset 15
+!delay 1000
+
+# Light on the LED on GPIO0
+sys set pindig GPIO0 1
+!delay 250
+
+# Light on the LED on GPIO10
+sys set pindig GPIO10 1
+!delay 250
+````
+
+By the way I integrated SPIFFS editor so you can direct edit configuration files of SPIFFS going to 
+`http://ESP_IP/edit`
+Your computer need to be connected to Internet (so may be your ESP8266 device) and authenticated for this feature, default login/pass are in the sketch 
 
 See all in action    
 http://cdn.rawgit.com/hallard/WebSocketToSerial/master/webdev/index.htm
 
 Known Issues/Missing Features:
 ------------------------------
-- More configuration features (UART speed/configuration)
+- More configuration features 
+- Configuration file for SSID/PASSWORD and login/pass for http admin access
 
 Dependencies
 ------------
@@ -70,6 +126,6 @@ See news and other projects on my [blog][2]
 [5]: https://github.com/me-no-dev/ESPAsyncTCP
 [6]: https://github.com/esp8266/Arduino/blob/master/README.md
 [7]: https://nodejs.org/
-
+[8]: https://github.com/hallard/WeMos-RN2483/blob/master/README.md
 [9]: http://cdn.rawgit.com/hallard/WebSocketToSerial/master/webdev/index.htm
 
