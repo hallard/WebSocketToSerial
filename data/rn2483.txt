@@ -1,0 +1,28 @@
+# Startup config file for Microchip RN2483
+# commands prefixed by ! are executed by ESP all others passed to serial module
+# !delay is not executed when connected via browser web terminal (websocket)
+# See schematics here https://github.com/hallard/WeMos-RN2483
+
+# Set ESP Module serial speed (RN2483 is 57600)
+!baud 57600
+!delay 100
+
+# reset RN2483 module (reset pin connected to ESP GPIO15)
+!reset 15
+!delay 1000
+
+# Not Used GPIO on my board as input
+sys set pinmode GPIO1 digin
+!delay 250
+sys set pinmode GPIO11 digin
+!delay 250
+
+# Light on the LED on GPIO0
+sys set pindig GPIO0 1
+!delay 250
+
+# Light on the LED on GPIO10
+sys set pindig GPIO10 1
+!delay 250
+
+
