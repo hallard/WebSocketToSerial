@@ -27,12 +27,11 @@ var clientid=0;
 
 
 function list() {
-return[	{"type":"file","name":"css/jquery.terminal-min.css.gz"},
+return[	{"type":"file","name":"css/terminal.css.gz"},
 				{"type":"file","name":"favicon.ico"},
-				{"type":"file","name":"js/ace.js.gz"},
-				{"type":"file","name":"js/jquery-1.12.3.min.js.gz"},
-				{"type":"file","name":"js/jquery.mousewheel-min.js.gz"},
-				{"type":"file","name":"js/jquery.terminal-min.js.gz"},
+				{"type":"file","name":"js/jquery-1.12.3.js.gz"},
+				{"type":"file","name":"js/mousewheel.js.gz"},
+				{"type":"file","name":"js/terminal.js.gz"},
 				{"type":"file","name":"edit.htm"},
 				{"type":"file","name":"index.htm"},
 				{"type":"file","name":"rn2483.txt"},
