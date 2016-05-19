@@ -316,7 +316,7 @@ function createEditor(element, file, lang, theme, type){
     lang = getLangFromFilename(file);
   }
 
-  if(typeof theme === "undefined") theme = "textmate";
+  if(typeof theme === "undefined") theme = "monokai";
 
   if(typeof type === "undefined"){
     type = "text/"+lang;
@@ -403,7 +403,7 @@ function onBodyLoad(){
   createFileUploader("uploader", tree, editor);
 };
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.1.9/ace.js" type="text/javascript" charset="utf-8"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.2.3/ace.js" type="text/javascript" charset="utf-8"></script>
 </head>
 <body onload="onBodyLoad();">
   <div id="uploader"></div>
