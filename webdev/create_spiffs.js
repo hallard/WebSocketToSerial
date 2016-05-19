@@ -30,10 +30,10 @@ function copyCreate(file, compress) {
 	}
 }
 
-copyCreate('js/jquery.mousewheel-min.js',true);
-copyCreate('js/jquery.terminal-min.js',true);
-copyCreate('js/jquery-1.12.3.min.js',true);
-copyCreate('css/jquery.terminal-min.css',true);
+copyCreate('js/mousewheel.js',true);
+copyCreate('js/terminal.js',true);
+copyCreate('js/jquery-1.12.3.js',true);
+copyCreate('css/terminal.css',true);
 copyCreate('index.htm');
 copyCreate('edit.htm');
 copyCreate('favicon.ico');
