@@ -34,6 +34,68 @@ typedef struct {
   uint8_t   state;
 } _ws_client; 
 
+// Uncomment 3 lines below if you have an WS1812B RGB LED 
+// like shield here https://github.com/hallard/WeMos-RN2483
+//#define RGB_LED_PIN   0
+//#define RGB_LED_COUNT 1
+//#define RGBW_LED 
+
+// RGB Led
+#ifdef RGB_LED_PIN
+  #include <NeoPixelAnimator.h>
+  #include <NeoPixelBus.h>
+
+  // value for HSL color
+  // see http://www.workwithcolor.com/blue-color-hue-range-01.htm
+  #define COLOR_RED             0
+  #define COLOR_ORANGE         30
+  #define COLOR_ORANGE_YELLOW  45
+  #define COLOR_YELLOW         60
+  #define COLOR_YELLOW_GREEN   90
+  #define COLOR_GREEN         120
+  #define COLOR_GREEN_CYAN    165
+  #define COLOR_CYAN          180
+  #define COLOR_CYAN_BLUE     210
+  #define COLOR_BLUE          240
+  #define COLOR_BLUE_MAGENTA  275
+  #define COLOR_MAGENTA       300
+  #define COLOR_PINK          350
+
+  uint8_t  rgb_led_effect_state;  // general purpose variable used to store effect state
+
+  #ifdef RGBW_LED
+    NeoPixelBus<NeoGrbwFeature, NeoEsp8266BitBang800KbpsMethod> rgb_led(RGB_LED_COUNT, RGB_LED_PIN);
+    // what is stored for state is specific to the need, in this case, the colors.
+    // basically what ever you need inside the animation update function
+    struct MyAnimationState
+    {
+      RgbwColor RgbStartingColor;
+      RgbwColor RgbEndingColor;
+      uint8_t   IndexPixel;   // general purpose variable used to store pixel index
+    };
+    RgbwColor rgb_led_color; // RGBW Led color
+  #else
+    NeoPixelBus<NeoRgbFeature, NeoEsp8266BitBang800KbpsMethod> rgb_led(RGB_LED_COUNT, RGB_LED_PIN);
+    // what is stored for state is specific to the need, in this case, the colors.
+    // basically what ever you need inside the animation update function
+    struct MyAnimationState
+    {
+      RgbColor  RgbStartingColor;
+      RgbColor  RgbEndingColor;
+      uint8_t   IndexPixel;   // general purpose variable used to store pixel index
+    };
+    RgbColor rgb_led_color; // RGB Led color
+  #endif
+
+  // one entry per pixel to match the animation timing manager
+  NeoPixelAnimator animations(1); 
+  MyAnimationState animationState[1];
+
+#endif
+
+
+
+
 // WEB HANDLER IMPLEMENTATION
 class SPIFFSEditor: public AsyncWebHandler {
   private:
@@ -137,6 +199,14 @@ class SPIFFSEditor: public AsyncWebHandler {
     }
 };
 
+extern "C" void system_set_os_print(uint8 onoff);
+extern "C" void ets_install_putc1(void* routine);
+
+//Use the internal hardware buffer
+static void _u0_putc(char c){
+  while(((U0S >> USTXC) & 0x7F) == 0x7F);
+  U0F = c;
+}
 
 const char* ssid = "*******";
 const char* password = "*******";
@@ -152,6 +222,105 @@ AsyncWebSocket ws("/ws");
 
 // State Machine for WebSocket Client;
 _ws_client ws_client[MAX_WS_CLIENT]; 
+
+#ifndef RGB_LED_PIN
+#define LedRGBFadeAnimUpdate(p) {}
+#define LedRGBAnimate(p) {}
+#define LedRGBON(h) {}
+#define LedRGBOFF() {}
+#else
+/* ======================================================================
+Function: LedRGBFadeAnimUpdate
+Purpose : Fade in and out effect for RGB Led
+Input   : -
+Output  : - 
+Comments: grabbed from NeoPixelBus library examples
+====================================================================== */
+void LedRGBFadeAnimUpdate(const AnimationParam& param)
+{
+  // this gets called for each animation on every time step
+  // progress will start at 0.0 and end at 1.0
+  // apply a exponential curve to both front and back
+  float progress = NeoEase::QuadraticInOut(param.progress);
+
+  // we use the blend function on the RgbColor to mix
+  // color based on the progress given to us in the animation
+  #ifdef RGBW_LED
+    RgbwColor updatedColor = RgbwColor::LinearBlend(  
+                                animationState[param.index].RgbStartingColor, 
+                                animationState[param.index].RgbEndingColor, 
+                                progress);
+    rgb_led.SetPixelColor(0, updatedColor);
+  #else
+    RgbColor updatedColor = RgbColor::LinearBlend(  
+                                animationState[param.index].RgbStartingColor, 
+                                animationState[param.index].RgbEndingColor, 
+                                progress);
+    rgb_led.SetPixelColor(0, updatedColor);
+  #endif
+}
+
+
+/* ======================================================================
+Function: LedRGBAnimate
+Purpose : Manage RGBLed Animations
+Input   : parameter (here animation time in ms)
+Output  : - 
+Comments: 
+====================================================================== */
+void LedRGBAnimate(uint16_t param)
+{
+  if ( animations.IsAnimating() ) {
+    // the normal loop just needs these two to run the active animations
+    animations.UpdateAnimations();
+    rgb_led.Show();
+  } else {
+    animationState[0].RgbStartingColor = rgb_led.GetPixelColor(0);
+    animationState[0].RgbEndingColor = rgb_led_effect_state==0 ? rgb_led_color:RgbColor(0);
+    animations.StartAnimation(0, param, LedRGBFadeAnimUpdate);
+
+    // toggle to the next effect state
+    rgb_led_effect_state = (rgb_led_effect_state + 1) % 2;
+  }
+}
+
+/* ======================================================================
+Function: LedRGBON
+Purpose : Set RGB LED strip color, but does not lit it
+Input   : Hue (0..360)
+Output  : - 
+Comments: 
+====================================================================== */
+void LedRGBON (uint16_t hue)
+{
+  // Convert to neoPixel API values
+  // H (is color from 0..360) should be between 0.0 and 1.0
+  // S is saturation keep it to 1
+  // L is brightness should be between 0.0 and 0.5
+  RgbColor target = HslColor( hue / 360.0f, 1.0f, 0.5f );
+  rgb_led_color = target;
+}
+
+/* ======================================================================
+Function: LedRGBOFF 
+Purpose : light off the RGB LED strip
+Input   : -
+Output  : - 
+Comments: -
+====================================================================== */
+void LedRGBOFF(void)
+{
+  // stop animation, reset params
+  animations.StopAnimation(0);
+  animationState[0].RgbStartingColor = RgbColor(0);
+  animationState[0].RgbEndingColor = RgbColor(0);
+  rgb_led_color = RgbColor(0);
+
+  // clear the strip
+  rgb_led.SetPixelColor(0, RgbColor(0));
+  rgb_led.Show();  
+}
+#endif
 
 
 /* ======================================================================
@@ -293,7 +462,10 @@ void execCommand(AsyncWebSocketClient * client, char * msg) {
     uint16_t v= atoi(&msg[6]);
     if (v>=0 && v<=60000 ) {
       //Serial.printf("delay(%d)\r\n",v);
-      delay(v);
+      while(v--) {
+        LedRGBAnimate(500);
+        delay(1);
+      }
     }
 
   // ----------------------------
@@ -457,6 +629,7 @@ void setup(){
   sprintf_P(host, PSTR("WS2Serial_%06X"), ESP.getChipId());
 
   Serial.begin(115200);
+  Serial.setDebugOutput(true);
   Serial.print(F("\r\nBooting "));
   Serial.println(host);
   SPIFFS.begin();
@@ -471,15 +644,11 @@ void setup(){
     Serial.println(F("No SSID/PSK defined in sketch\r\nConnecting with SDK ones if any"));
   }
 
-  while (WiFi.waitForConnectResult() != WL_CONNECTED) {
-    Serial.println(F("Failed to connect, retrying!"));
-    WiFi.disconnect(false);
-    delay(2000);
-  
-    // No empty sketch SSID, try connect 
-    if (*ssid!='*' && *password!='*' ) {
-      WiFi.begin(ssid, password);
-    }
+  // Loop until connected
+  while ( WiFi.status() !=WL_CONNECTED ) {
+    LedRGBON(COLOR_ORANGE_YELLOW);
+    LedRGBAnimate(500);
+    yield(); 
   }
 
   Serial.print(F("I'm network device named "));
@@ -567,11 +736,12 @@ void setup(){
   // Set on board led GPIO to outout
   pinMode(BUILTIN_LED, OUTPUT);
 
+  // Set Breathing to magenta
+  LedRGBON(COLOR_MAGENTA);
+
   // Run startup script if any
   char cmd[] = "read /startup.txt";
   execCommand(NULL, cmd);
-  char cmd1[] = "baud 115200";
-  execCommand(NULL, cmd1);
 
   // Start Server
   server.begin();
@@ -580,6 +750,9 @@ void setup(){
   Serial.print(F(" and WS://"));
   Serial.print(WiFi.localIP());
   Serial.println(F("/ws"));
+
+  // Set Breathing to Green
+  LedRGBON(COLOR_GREEN);
 }
 
 /* ======================================================================
@@ -590,7 +763,8 @@ Output  : -
 Comments: -
 ====================================================================== */
 void loop() {
-  bool led_state ; 
+  bool      led_state ; 
+  uint16_t fade_speed;
 
   // Got one serial char ?
   if (Serial.available()) {
@@ -609,12 +783,17 @@ void loop() {
   // Led blink management 
   if (WiFi.status()==WL_CONNECTED) {
     led_state = ((millis() % 1000) < 200) ? LOW:HIGH; // Connected long blink 200ms on each second
+    fade_speed = 1000;
   } else {
     led_state = ((millis() % 333) < 111) ? LOW:HIGH;// AP Mode or client failed quick blink 111ms on each 1/3sec
+    fade_speed = 333;
   }
   // Led management
   digitalWrite(BUILTIN_LED, led_state);
 
   // Handle remote Wifi Updates
   ArduinoOTA.handle();
+
+  // RGB LED Animation
+  LedRGBAnimate(fade_speed);
 }
