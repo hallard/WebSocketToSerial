@@ -57,14 +57,14 @@ Commands once connected to remote device:
 - `read file` execute SPIFFS file command
 
 
-Every command in file `startup.txt` are executed in setup() you can chain with other files. 
+Every command in file `startup.ini` are executed in setup() you can chain with other files. 
 
 I'm using this sketch to drive Microchip RN2483 Lora module to test LoraWan, see the [boards][8] I used.
 
-For example my `startup.txt` file contains command to read microchip RN2483 config file named `rn2483.txt`
+For example my `startup.ini` file contains command to read microchip RN2483 config file named `rn2483.txt`
 
-`startup.txt`
-````
+`startup.ini`
+```sh
 # Startup config file executed once in setup()
 # commands prefixed by ! are executed by ESP
 # all others passed to serial module
@@ -72,10 +72,10 @@ For example my `startup.txt` file contains command to read microchip RN2483 conf
 # Chain with Microchip Lora rn2483 configuration
 !read /rn2483.txt
 
-````
+```
 
 rn2483 configuration file for my [WeMos shield][8] `rn2483.txt`
-````
+```shell
 # Startup config file for Microchip RN2483
 # commands prefixed by ! are executed by ESP all others passed to serial module
 # !delay is not executed when connected via browser web terminal (websocket)
@@ -96,7 +96,7 @@ sys set pindig GPIO0 1
 # Light on the LED on GPIO10
 sys set pindig GPIO10 1
 !delay 250
-````
+```
 
 By the way I integrated the excellent @me-no-dev SPIFFS Web editor so you can direct edit configuration files of SPIFFS going to 
 `http://ESP_IP/edit`
