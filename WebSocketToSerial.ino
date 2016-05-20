@@ -38,7 +38,7 @@ typedef struct {
 // like shield here https://github.com/hallard/WeMos-RN2483
 //#define RGB_LED_PIN   0
 //#define RGB_LED_COUNT 1
-//#define RGBW_LED 
+//#define RGBW_LED // 
 
 // RGB Led
 #ifdef RGB_LED_PIN
@@ -740,7 +740,7 @@ void setup(){
   LedRGBON(COLOR_MAGENTA);
 
   // Run startup script if any
-  char cmd[] = "read /startup.txt";
+  char cmd[] = "read /startup.ini";
   execCommand(NULL, cmd);
 
   // Start Server
