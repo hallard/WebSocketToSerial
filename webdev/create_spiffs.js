@@ -37,7 +37,7 @@ copyCreate('css/terminal.css',true);
 copyCreate('index.htm');
 copyCreate('edit.htm');
 copyCreate('favicon.ico');
-copyCreate('startup.txt');
+copyCreate('startup.ini');
 copyCreate('rn2483.txt');
 console.log('finished!, upload to target from Arduino IDE');
 

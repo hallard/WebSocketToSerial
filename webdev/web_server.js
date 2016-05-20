@@ -35,7 +35,7 @@ return[	{"type":"file","name":"css/terminal.css.gz"},
 				{"type":"file","name":"edit.htm"},
 				{"type":"file","name":"index.htm"},
 				{"type":"file","name":"rn2483.txt"},
-				{"type":"file","name":"startup.txt"}]
+				{"type":"file","name":"startup.ini"}]
 }
 
 //Lets use our dispatcher
