@@ -20,7 +20,8 @@ var url = require('url');
 var mime = require('mime');
 var util = require('util');
 var os = require('os');
-var dispatcher = require('httpdispatcher');
+var Httpdispatcher = require('httpdispatcher');
+var dispatcher = new Httpdispatcher();
 var ws = require('websocket').server;
 
 var clientid=0;
