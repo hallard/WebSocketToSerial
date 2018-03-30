@@ -9,105 +9,140 @@
   <script src="js/jquery-1.12.3.js"></script>
   <script src="js/mousewheel.js"></script>
   <script src="js/terminal.js"></script>
+  <script src="js/reconn-ws.js"></script>
   <link href="css/terminal.css" rel="stylesheet"/>
 </head>
 <body>
 <script>
-jQuery(document).ready(function($) {
-  var ws = null;
+var ws = null;    // Websocket
+var term = null;  // Terminal
 
-  // Show help
-  function showHelp() {
-    // Close WS if already opened
-    term.echo("available commands when not connected are [[b;cyan;]connect] or [[b;cyan;]help]\n" + 
-                  "connect is done trough WebSocket so real URI is [[bu;;]ws://host:port/ws]\n" +
-                  "as soon as you're connected to Internet you can connect anywhere\n" +
-                  "examples: [[b;cyan;]connect]                connect to same host than in browser url\n" +
-                  "          [[b;cyan;]connect 192.168.1.22]   connect to 192.168.1.22\n" +
-                  "          [[b;cyan;]connect mywebsocket:81] connect to mywebsocket:81\n" +
-                  "When you're connected to target sending help may show you target help" +
-                  ""
-                  ); 
-  }
+// Show help
+function showHelp() {
+  // Close WS if already opened
+  term.echo("available commands when not connected are [[b;cyan;]connect], [[b;cyan;]cls] or [[b;cyan;]help]\n" + 
+                "connect is done trough WebSocket so real URI is [[bu;;]ws://host:port/ws]\n" +
+                "as soon as you're connected to Internet you can connect anywhere\n" +
+                "examples: [[b;cyan;]connect]                connect to same host than in browser url\n" +
+                "          [[b;cyan;]connect 192.168.1.22]   connect to 192.168.1.22\n" +
+                "          [[b;cyan;]connect mywebsocket:81] connect to mywebsocket:81\n" +
+                "          [[b;cyan;]cls]                    clear terminal screen\n" +
+                "When you're connected to target sending help may show you target help" +
+                ""
+                ); 
+}
 
+// Stop WebSocket
+function stopWS(stop) {
+  // Close WS will fire close event
+  if (ws) ws.close();
 
-  // Stop WebSocket
-  function stopWS() {
-    // Close WS if already opened
-    if (ws) {
-      ws.close();
-      ws = null;
-    }    
-  }
+  // Destroy WebSocket (disable auto reconnect)
+  if (stop) ws = null;
+}
 
-  // Start WebSocket
-  function startWS(url) {
-    if (url === undefined )
-      url = document.location.host;
-    stopWS();
-    ws = new WebSocket('ws://'+url+'/ws');
-    ws.binaryType = "arraybuffer";
+// Start WebSocket
+function startWS(url) {
+  //console.log("startWS");
+  if (url === undefined )
+    url = document.location.host;
 
-    ws.onopen = function(e) {
-      console.log("ws connected ", e);
-      term.echo("[[b;green;]Connected to "+url+"]");
-      term.echo("Press ctrl-d or type [[b;cyan;]!close] to disconnect");
-      term.echo("Type [[b;cyan;]ping] so see pong response");
-      term.set_prompt(url+"[[;green;] #]");
-    };
+  // Be sure to do a fresh start
+  stopWS(true);
 
-    ws.onclose = function(e){
-      console.log("ws closed ", e);
-      term.echo("[[b;red;]Disconnected]");
-      term.set_prompt('[[;red;]>]');
-    };
+  ws = new ReconnectingWebSocket('ws://'+url+'/ws');
+  //ws.debug = true;
+  ws.binaryType = "arraybuffer";
 
-    ws.onerror = function(e){
-      console.log("ws error ", e);
-      term.echo("Error");
-    };
+  ws.onopen = function(e) {
+    //console.log("ws.onopen() TL=%d ws=%s",term.level(),ws?"true":"null");
+    if (term.level()<2) {
+      term.push(function(command, term) { 
+        // no Interpreter command '!', send 
+        if ( command.charAt(0) != '!' ) {
+          // Send to WebSocket
+          if (ws) {
+            ws.send(command); 
+          } else {
+            term.error("Not connected");
+            term.pop()
+          }
 
-    ws.onmessage = function(e){
-      var msg = "";
-      if(e.data instanceof ArrayBuffer){
-        // WS binary in blue
-        color = 'light';
-        var bytes = new Uint8Array(e.data);
-        for (var i = 0; i < bytes.length; i++) {
-          msg += String.fromCharCode(bytes[i]);
+        } else {
+          // Interpreter command '!', don't send but interpret
+          if (command == "!close") stopWS(true);
+          if (command == "!cls") this.clear();
+        } 
+      },
+      { keydown: function(e, term) { 
+          // CTRL-D really stop and destroy WebSocket
+          if ( e.which==68 && e.ctrlKey) {
+            stopWS(true);
+            return false;
+          }
         }
-      } else {
-        // WS text in green
-        color = 'green';
-        msg = e.data;
-        // replace ] color ending by html code
-        //msg = msg.replace(/\]/g, "&#93;");
+
+      });
+
+    }
+
+    //console.log("ws connected ");
+    term.echo("[[b;green;]Connected to "+url+"]");
+    term.echo("Press ctrl-d or type [[b;cyan;]!close] to disconnect");
+    term.echo("Type [[b;cyan;]ping] so see pong response");
+    term.set_prompt(url+"[[;green;] #]");
+  };
+
+  ws.onclose = function(e){
+    //console.log("ws.onclose(in) TL=%d ws=%s",term.level(),ws?"true":"null");
+    if (ws) {
+      term.echo("[[b;orange;]Connection to host lost, starting auto-reconnect]");
+      term.set_prompt('[[;green;]>]');
+    } else {
+      term.echo("[[b;red;]Connection Closed]");
+      term.set_prompt('[[;red;]>]');
+    }
+
+    // Close terminal
+    while (term.level()>1) 
+      term.pop();
+  };
+
+  ws.onerror = function(e){
+    console.log("ws.onerror ", e);
+  };
+
+  ws.onmessage = function(e){
+    var msg = "";
+    if(e.data instanceof ArrayBuffer){
+      // WS binary in blue
+      color = 'light';
+      var bytes = new Uint8Array(e.data);
+      for (var i = 0; i < bytes.length; i++) {
+        msg += String.fromCharCode(bytes[i]);
       }
-      // remove \r and \n terminal echo them
-      //msg = msg.replace(/(\r\n|\n|\r)/gm,"");
-      //term.echo("[[;"+color+";]"+msg+"]");
-      term.echo(msg);
-    };
-  }
+    } else {
+      // WS text in green
+      color = 'green';
+      msg = e.data;
+      // replace ] color ending by html code
+      //msg = msg.replace(/\]/g, "&#93;");
+    }
+    // remove \r and \n terminal echo them
+    //msg = msg.replace(/(\r\n|\n|\r)/gm,"");
+    //term.echo("[[;"+color+";]"+msg+"]");
+    term.echo(msg);
+  };
+}
+
+jQuery(document).ready(function($) {
 
   // Instanciate the terminal object
-  var term = $('body').terminal( {
+  term = $('body').terminal( {
       help: function() { showHelp(); },
-      connect: function(arg1) { 
-        startWS(arg1); 
-        this.push(function(command, term) { 
-          // Interpreter command '!', don't send but interpret
-          if ( command.charAt(0) == '!' ) {
-            if (command == "!close") {
-              stopWS(); 
-              this.pop(); 
-            }
-          // Send to WebSocket
-          } else {
-            ws.send(command); 
-          }
-        },{ onExit: function(){stopWS();}});
-      },
+      cls: function() { this.clear(); },
+      connect: function(arg1) { startWS(arg1); },
+      debug: function(arg1) { this.echo("level()="+term.level()+" ws="+(ws?"true":"false")); },
     }, 
 
     // Default terminal settings and greetings
