@@ -1,0 +1,20 @@
+# Startup config file for Microchip RN2483 join TTN in otaa
+# commands prefixed by ! or $ are executed by ESP all others passed to serial module
+# command starting with $ wait until device return \n 
+# RN2483 always return string followed by "\r\n" on each command (ex "ok\r\n")
+# so $ wait a response (good or not) before sending next command
+# !delay or any $ are not executed when connected via browser web terminal (websocket)
+# See schematics here https://github.com/hallard/WeMos-RN2483
+
+# Start LoraWan
+$mac resume
+
+# Of course you should have setup your key at 1st setup 
+# and saved with "mac save", if not put them there
+# see help https://github.com/lukastheiler/ttn_moteino/blob/master/Readme.md
+#$mac set appeui YOUR-APP-EUI
+#$mac set appkey YOUR-APP_KEY
+
+# Join Network
+$mac join otaa
+
