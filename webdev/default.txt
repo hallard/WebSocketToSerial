@@ -1,0 +1,9 @@
+# Startup config file for classic 115200 serial
+# commands prefixed by ! or $ are executed by ESP all others passed to serial module
+# command starting with $ wait until device return \n 
+# !delay or any $ are not executed when connected via browser web terminal (websocket)
+
+# Set ESP Module serial speed 
+!baud 115200
+!delay 100
+
