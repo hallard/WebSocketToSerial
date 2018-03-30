@@ -33,6 +33,7 @@ function copyCreate(file, compress) {
 copyCreate('js/mousewheel.js',true);
 copyCreate('js/terminal.js',true);
 copyCreate('js/jquery-1.12.3.js',true);
+copyCreate('js/reconn-ws.js',true);
 copyCreate('css/terminal.css',true);
 copyCreate('index.htm');
 copyCreate('edit.htm');
