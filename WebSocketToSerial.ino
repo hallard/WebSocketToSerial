@@ -40,12 +40,8 @@
   app_state_e app_state ;
 #endif
 
-//const char* ssid = "*******";
-//const char* password = "*******";
-
-const char* ssid = "CH2I-HOTSPOT";
-const char* password = "Wireless@Ch2i";
-
+const char* ssid = "*******";
+const char* password = "*******";
 const char* http_username = "admin";
 const char* http_password = "admin";
 char thishost[17];
@@ -253,12 +249,10 @@ void execCommand(AsyncWebSocketClient * client, char * msg) {
 
   } else if (!strcmp_P(msg,PSTR("swap"))) {
     Serial.swap();
-    serialSwapped != serialSwapped;
+    serialSwapped =! serialSwapped;
     if (client)
       client->printf_P(PSTR("Swapped UART pins, now using [[b;green;]RX-GPIO%d TX-GPIO%d]"),
                               serialSwapped?13:3,serialSwapped?15:1);
-
-
 
   // Debug information
   } else if ( !strncmp_P(msg,PSTR("debug"), 5) ) {
@@ -683,9 +677,7 @@ void setup() {
   SERIAL_DEBUG.print(F("I'm network device named "));
   SERIAL_DEBUG.println(thishost);
 
-  //ArduinoOTA.setHostname("WS2Serial");
   ArduinoOTA.setHostname(thishost);
-  ArduinoOTA.begin();
 
   // OTA callbacks
   ArduinoOTA.onStart([]() {
@@ -725,21 +717,22 @@ void setup() {
     ESP.restart(); 
   });
 
+  ArduinoOTA.begin();
+  MDNS.addService("http","tcp",80);
+
+
   // Enable and start websockets
   ws.onEvent(onEvent);
   server.addHandler(&ws);
   
+  server.addHandler(new SPIFFSEditor(http_username,http_password));
+
   server.on("/heap", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(200, "text/plain", String(ESP.getFreeHeap()));
   });
 
   server.serveStatic("/", SPIFFS, "/").setDefaultFile("index.htm");
   
-  //server.serveStatic("/fs", SPIFFS, "/");
-  //server.serveStatic("/",   SPIFFS, "/index.htm", "max-age=86400");
-  //server.serveStatic("/",   SPIFFS, "/",          "max-age=86400"); 
-
-  server.addHandler(new SPIFFSEditor(http_username,http_password));
 
   server.onNotFound([](AsyncWebServerRequest *request){
     SERIAL_DEBUG.printf("NOT_FOUND: ");
